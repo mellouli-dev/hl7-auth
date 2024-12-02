@@ -1,0 +1,42 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  DOCKER_IMAGE: "nist775hit/hl7-auth-2"
+  DOCKER_DRIVER: overlay2
+  DOCKER_HOST: tcp://docker:2375  # Ensure Docker commands connect to the DinD service
+  DOCKER_TLS_CERTDIR: ""          # Disable TLS for Docker-in-Docker
+  PROFILE: "default"
+  MONGO_INITDB_DATABASE: "hl7-auth-db"
+
+
+generate_jar:
+  stage: build
+  image: node:18
+  script:
+    - apt-get update && apt-get install -y maven
+    - chmod +x buildScript.sh 
+    - ./buildScript.sh 
+  artifacts:
+    paths:
+      - bootstrap/target/hl7-auth.jar
+    expire_in: 1 hour
+
+build_and_push_docker_image:
+  stage: deploy
+  image: docker:24.0.2
+  services:
+    - docker:24.0.2-dind
+  before_script:
+    - echo "$DOCKER_PASSWORD" | docker login --username "$DOCKER_USERNAME" --password-stdin
+  script:
+    - cp bootstrap/target/hl7-auth.jar .
+    - docker build --build-arg PROFILE="$PROFILE" --build-arg MONGO_INITDB_DATABASE="$MONGO_INITDB_DATABASE" -t "$DOCKER_IMAGE:latest" .
+
+
+    - docker push $DOCKER_IMAGE:latest
+  dependencies:
+    - generate_jar
+  only:
+    - develop
